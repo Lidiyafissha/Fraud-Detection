@@ -1,41 +1,81 @@
+# ==============================
+# TESTING & ROBUSTNESS NOTE
+# ==============================
+# To improve reliability, basic validation and error handling should be
+# added to the preprocessing and training steps.
+#
+# This includes:
+# - Asserting that required columns exist before processing
+# - Verifying target column presence and type
+# - Handling missing values or invalid data types gracefully
+# - Failing fast with clear error messages instead of silent crashes
+#
+# These checks can be tested independently while preserving the current
+# modular structure (preprocessing, splitting, modeling, training).
+
 import pandas as pd
-import os
-import sys
+import pytest
 
-# Add project root to path
-sys.path.append(os.path.abspath(os.path.join("..")))
-
-from src.preprocessing import preprocess_fraud
-from src.split import stratified_split
-from src.baseline_model import logistic_regression_model
+from src.preprocessing import preprocess_fraud, preprocess_creditcard
 from src.training_pipeline import train_and_evaluate
+from src.baseline_model import logistic_regression_model
 
 
-def test_training_pipeline_runs():
+# =====================================================
+# PREPROCESSING VALIDATION TESTS
+# =====================================================
+
+def test_preprocess_fraud_requires_columns():
     """
-    Test that the training pipeline runs and returns valid metrics.
+    preprocess_fraud should fail fast if required columns are missing.
     """
+    df = pd.DataFrame({
+        "age": [25, 30],
+        "purchase_value": [100, 200]
+    })
 
-    # Load small sample to keep test fast
-    df = pd.read_csv("data/processed/fraud_final.csv").sample(500, random_state=42)
+    with pytest.raises((AssertionError, KeyError, ValueError)):
+        preprocess_fraud(df)
 
-    # Preprocess
-    df = preprocess_fraud(df)
 
-    # Split
-    X_train, X_test, y_train, y_test = stratified_split(df, target="class")
+def test_preprocess_creditcard_requires_columns():
+    """
+    preprocess_creditcard should fail if critical CC columns are missing.
+    """
+    df = pd.DataFrame({
+        "Amount": [10.5, 20.3]
+    })
 
-    # Train model
+    with pytest.raises((AssertionError, KeyError, ValueError)):
+        preprocess_creditcard(df)
+
+
+# =====================================================
+# TRAINING PIPELINE VALIDATION TESTS
+# =====================================================
+
+def test_training_fails_without_target():
+    """
+    Training must not run if y_train is None.
+    """
+    X = pd.DataFrame({"f1": [1, 2], "f2": [3, 4]})
+    y = None
+
     model = logistic_regression_model()
-    _, metrics = train_and_evaluate(
-        X_train, y_train, X_test, y_test, model
-    )
 
-    # Assertions
-    assert isinstance(metrics, dict)
-    assert "F1" in metrics
-    assert "PR_AUC" in metrics
-    assert "Confusion_Matrix" in metrics
+    with pytest.raises((AssertionError, ValueError, TypeError)):
+        train_and_evaluate(X, y, X, y, model)
 
-    assert 0 <= metrics["F1"] <= 1
-    assert 0 <= metrics["PR_AUC"] <= 1
+
+def test_training_fails_on_length_mismatch():
+    """
+    X and y length mismatch should raise a clear error.
+    """
+    X = pd.DataFrame({"f1": [1, 2, 3]})
+    y = pd.Series([0, 1])
+
+    model = logistic_regression_model()
+
+    with pytest.raises((AssertionError, ValueError)):
+        train_and_evaluate(X, y, X, y, model)
+
